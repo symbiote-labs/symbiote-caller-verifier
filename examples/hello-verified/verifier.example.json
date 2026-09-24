@@ -1,0 +1,13 @@
+{
+  "issuer": "https://symbiote.example.com",
+  "integration_id": "00000000-0000-4000-8000-000000000001",
+  "server_id": "00000000-0000-4000-8000-000000000002",
+  "trust_bundle": {
+    "issuer": "https://symbiote.example.com",
+    "keys": [
+      {"kid": "<kid>", "alg": "Ed25519", "public_key": "<base64url public key from your platform>"}
+    ]
+  },
+  "max_skew_seconds": 5,
+  "exempt_tools": ["greet"]
+}
