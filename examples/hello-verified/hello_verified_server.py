@@ -9,7 +9,8 @@ verified caller and then applies the studio's own policy:
   and a reassigned address arriving under another pair gets nothing.
 - A ``uuid`` caller (assertion v1) is looked up by platform user UUID.
 
-Tool results never carry the caller's identity. Run over stdio with
+Tool results never carry the caller's identity, except the opt-in ``whoami`` test
+tool (off unless ``SYMBIOTE_EXPOSE_WHOAMI=1``). Run over stdio with
 ``python hello_verified_server.py``; configure through environment variables or
 the files next to this script. Never print to stdout.
 """
@@ -43,7 +44,8 @@ HERE = Path(__file__).resolve().parent
 CONFIG_ENV = "SYMBIOTE_VERIFIER_CONFIG"
 REPLAY_ENV = "SYMBIOTE_REPLAY_DB"
 POLICY_ENV = "SYMBIOTE_CALLER_POLICY"
-OPERATIONS = frozenset({"archive_shot"})
+WHOAMI_ENV = "SYMBIOTE_EXPOSE_WHOAMI"
+OPERATIONS = frozenset({"archive_shot", "whoami"})
 NOTHING: frozenset[str] = frozenset()
 PolicyObserver = Callable[[VerifiedCaller, str], None]
 
@@ -135,12 +137,33 @@ def load_policy(path: str | os.PathLike[str]) -> Policy:
     )
 
 
+def whoami_enabled(environ: Mapping[str, str]) -> bool:
+    """``SYMBIOTE_EXPOSE_WHOAMI=1`` turns ``whoami`` on; unset or ``0`` leaves it off."""
+    value = environ.get(WHOAMI_ENV, "0")
+    if value not in ("0", "1"):
+        raise ValueError(f"{WHOAMI_ENV} must be 0 or 1")
+    return value == "1"
+
+
+def _identity(caller: VerifiedCaller) -> dict[str, Any]:
+    idp = caller.idp
+    return {
+        "identity_level": caller.identity_level,
+        "subject_id": caller.subject_id,
+        "idp": None
+        if idp is None
+        else {"iss": idp.iss, "sub": idp.sub, "verified_at": idp.verified_at},
+        "email": caller.email,
+    }
+
+
 def build_server(
     *,
     config_path: str | os.PathLike[str],
     replay_path: str | os.PathLike[str],
     policy_path: str | os.PathLike[str],
     on_policy_check: PolicyObserver | None = None,
+    expose_whoami: bool = False,
 ) -> tuple[FastMCP, list[str]]:
     """Return the server and the in-memory archive its side effect writes to."""
     config = VerifierConfig.from_file(config_path)
@@ -157,18 +180,35 @@ def build_server(
         """Greet someone. Exempt from verification: no identity guarantee."""
         return f"Hello, {name}!"
 
+    def authorize(operation: str) -> VerifiedCaller:
+        caller = require_verified_caller()
+        if on_policy_check is not None:
+            on_policy_check(caller, operation)
+        if operation not in policy.permitted(caller):
+            raise ToolError(f"policy_denied: caller is not permitted to {operation}")
+        return caller
+
     @mcp.tool
     def archive_shot(shot: str) -> dict[str, Any]:
         """Archive a shot. Requires a verified caller permitted by policy."""
-        caller = require_verified_caller()
-        if on_policy_check is not None:
-            on_policy_check(caller, "archive_shot")
-        if "archive_shot" not in policy.permitted(caller):
-            raise ToolError("policy_denied: caller is not permitted to archive shots")
+        caller = authorize("archive_shot")
         archive.append(shot)
         # The result goes back through the platform to its model provider and
         # retention: report the identity level, never who the caller is.
         return {"status": "archived", "shot": shot, "identity_level": caller.identity_level}
+
+    if expose_whoami:
+
+        @mcp.tool
+        def whoami() -> dict[str, Any]:
+            """TESTING ONLY: return the caller's verified identity.
+
+            This deliberately echoes the IdP issuer, subject, email and platform user
+            id into the result, and so into the model context and the chat transcript.
+            Use it to check what the verifier sees while onboarding; keep it off in
+            production. It is verified and policy-checked like any other tool.
+            """
+            return _identity(authorize("whoami"))
 
     return mcp, archive
 
@@ -194,6 +234,7 @@ def main() -> None:
         config_path=os.environ.get(CONFIG_ENV, HERE / "verifier.json"),
         replay_path=os.environ.get(REPLAY_ENV, HERE / "replay.sqlite"),
         policy_path=os.environ.get(POLICY_ENV, HERE / "allowed_callers.json"),
+        expose_whoami=whoami_enabled(os.environ),
     )
     mcp.run()
 

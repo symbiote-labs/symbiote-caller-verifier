@@ -6,6 +6,7 @@ A stdio FastMCP server with three tools:
 |---|---|---|
 | `greet` | no (`exempt_tools`) | Says hello. No caller identity |
 | `archive_shot` | yes | Checks the verified caller against `allowed_callers.json`, then records the shot |
+| `whoami` | yes | Only with `SYMBIOTE_EXPOSE_WHOAMI=1`. Returns the verified identity; testing only |
 | `symbiote_caller_probe` | yes | Reserved. Lets the platform confirm this server verifies assertions |
 
 ```
@@ -50,3 +51,15 @@ three identity settings from `verifier.json`.
 `archive_shot` returns only the status, the shot and the identity level. It never
 echoes the issuer, subject, email, `verified_at` or platform UUID, because a tool
 result goes back through the platform.
+
+## `whoami` (testing only, off by default)
+
+Start the server with `SYMBIOTE_EXPOSE_WHOAMI=1` to add a `whoami` tool that returns
+the caller's verified identity: `identity_level`, `subject_id`, `idp` (`iss`, `sub`,
+`verified_at`, or `null` at `uuid`) and `email` (`null` unless `idp+email`). Use it to
+check what the verifier sees while onboarding.
+
+It deliberately puts identity into the result, and so into the model context and the
+chat transcript. Keep it off in production. It is verified and policy-checked like any
+other tool: add `"whoami"` to a caller's `operations` to permit it. The shipped
+`allowed_callers.json` permits it for nobody.

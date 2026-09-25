@@ -24,7 +24,8 @@
   pin `https://` issuers in production.
 - `examples/hello-verified` requires `idp+email`, pins the IdP issuer, bounds the
   identity age at 7 days, looks callers up by verified email with (`iss`, `sub`) as
-  the stable key, and keeps identity out of tool results.
+  the stable key, and keeps identity out of tool results. An opt-in `whoami` tool
+  (`SYMBIOTE_EXPOSE_WHOAMI=1`, testing only) returns the verified identity.
 - Compatibility: 0.1.0 refuses every v2 assertion as `shape`. Upgrade the verifier
   before switching an integration's `caller_identity` away from `uuid`.
 
