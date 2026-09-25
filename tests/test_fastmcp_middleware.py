@@ -28,7 +28,7 @@ from symbiote_caller_verifier.verifier import (
     verified_caller,
 )
 
-from .conftest import FAKE_LOGIN_JWT, NOW, SUBJECT_ID, claims, mint
+from .conftest import FAKE_LOGIN_JWT, IDP_ISSUER, IDP_SUBJECT, NOW, SUBJECT_ID, claims, mint
 
 ARGS = {"shot": "sq010_sh020"}
 DENIED_SUBJECT = "11111111-2222-4333-8444-555555555555"
@@ -306,7 +306,7 @@ def test_probe_echoes_only_verified_claims(key, config, store):
     assert not result.is_error
     assert result.data == {
         "protocol": "caller/verified.v1",
-        "helper_version": "0.1.0",
+        "helper_version": "0.2.0",
         "kid": "2026-09",
         "jti": assertion.jti,
         "args_digest": assertion.args.digest,
@@ -547,3 +547,45 @@ def test_logged_tool_name_is_bounded_and_escaped(config, store, monkeypatch, cap
         assert rest and rest[0].startswith("Traceback")
     assert all("forged line" not in line and "xxxx" not in line for line in rest)
     assert effects.entered == 0
+
+
+def test_identity_insufficient_refusal_is_structured_and_runs_nothing(key, config, store):
+    strict = dataclasses.replace(config, require_identity="idp")
+    mcp, effects = build(strict, store)
+    assert rejected(call(mcp, "archive_shot", ARGS, mint(key, claims(arguments=ARGS)))) == (
+        "identity_insufficient"
+    )
+    assert (effects.entered, effects.policy_checked, effects.archived) == (0, [], [])
+
+
+def test_v2_identity_reaches_tool_code(key, config, store):
+    seen: list[VerifiedCaller] = []
+    mcp = FastMCP("studio")
+    mcp.add_middleware(
+        CallerVerificationMiddleware(
+            dataclasses.replace(config, require_identity="idp"), store, clock=lambda: NOW + 1
+        )
+    )
+
+    @mcp.tool
+    def archive_shot(shot: str) -> str:
+        seen.append(require_verified_caller())
+        return shot
+
+    identity = codec.IdpIdentity(iss=IDP_ISSUER, sub=IDP_SUBJECT, verified_at=NOW - 60)
+    result = call(mcp, "archive_shot", ARGS, mint(key, claims(arguments=ARGS, idp=identity)))
+    assert not result.is_error
+    assert [(c.identity_level, c.idp, c.email) for c in seen] == [("idp", identity, None)]
+
+
+def test_the_probe_is_subject_to_the_identity_age_bound(key, config, store):
+    """An administrator whose SSO sign-in is older than the bound cannot re-prove the server."""
+    bounded = dataclasses.replace(config, require_identity="idp", max_identity_age_seconds=3600)
+    mcp, _ = build(bounded, store)
+    stale = codec.IdpIdentity(iss=IDP_ISSUER, sub=IDP_SUBJECT, verified_at=NOW + 1 - 3601)
+    result = call(mcp, PROBE_TOOL_NAME, {}, mint(key, claims(tool_name=PROBE_TOOL_NAME, idp=stale)))
+    assert rejected(result) == "identity_stale"
+    fresh = codec.IdpIdentity(iss=IDP_ISSUER, sub=IDP_SUBJECT, verified_at=NOW - 60)
+    assert not call(
+        mcp, PROBE_TOOL_NAME, {}, mint(key, claims(tool_name=PROBE_TOOL_NAME, idp=fresh))
+    ).is_error

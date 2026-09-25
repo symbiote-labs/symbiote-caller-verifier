@@ -22,6 +22,11 @@ INTEGRATION_ID = "0f5b2b5e-1c3a-4d2e-9b1f-6a8c2d4e5f60"
 SERVER_ID = "6d1b0c9a-2e4f-4a6b-8c0d-1e2f3a4b5c6d"
 SUBJECT_ID = "9b7c8d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e"
 TOOL_ID = "3c2b1a0f-9e8d-4c7b-a6f5-e4d3c2b1a0f9"
+IDP_ISSUER = "https://auth.studio.example.test/application/o/symbiote/"
+IDP_SUBJECT = "0c8f2d6a91b3e47f5a2d9c1b8e7f6a5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c"
+EMAIL = "Ada.Artist@studio.example.test"
+# When the IdP last verified the identity (the ID token's ``iat``): an hour before NOW.
+IDP_VERIFIED_AT = NOW - 3600
 
 
 def _b64url_json(value: dict[str, str]) -> str:
@@ -43,8 +48,13 @@ def claims(
     jti: str | None = None,
     subject_id: str = SUBJECT_ID,
     issuer: str = ISSUER,
-    typ: str = codec.ASSERTION_TYP,
+    typ: str | None = None,
+    idp: codec.IdpIdentity | None = None,
+    email: str | None = None,
 ) -> codec.Claims:
+    """A v1 claim set, or v2 when ``idp`` is given (``typ`` follows unless forced)."""
+    if typ is None:
+        typ = codec.ASSERTION_TYP if idp is None else codec.ASSERTION_TYP_V2
     return codec.Claims(
         typ=typ,
         iss=issuer,
@@ -57,7 +67,7 @@ def claims(
             alg=codec.ARGS_ALG,
             digest=codec.argument_digest({} if arguments is None else arguments),
         ),
-        sub=codec.Subject(id=subject_id, auth="jwt"),
+        sub=codec.Subject(id=subject_id, auth="jwt", idp=idp, email=email),
         iat=now,
         exp=now + lifetime,
     )

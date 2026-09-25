@@ -1,0 +1,102 @@
+{
+  "_comment": "Cross-package contract fixture for assertion v2 (sub.idp + sub.email): the platform signer must produce these exact bytes for these claims with this seed. Ed25519 is deterministic. Same key and call as assertion_v1.json.",
+  "kid": "2026-09",
+  "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "trust_bundle": {
+    "issuer": "https://symbiote.example.test",
+    "keys": [
+      {
+        "kid": "2026-09",
+        "alg": "Ed25519",
+        "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      }
+    ]
+  },
+  "arguments": {
+    "shot": "sq010_sh020",
+    "notes": "é 1.0"
+  },
+  "claims": {
+    "typ": "symbiote-caller-assertion-v2",
+    "iss": "https://symbiote.example.test",
+    "jti": "8e3a7b2f-4c5d-4e6f-9a01-2b3c4d5e6f70",
+    "aud": "symbiote-mcp:0f5b2b5e-1c3a-4d2e-9b1f-6a8c2d4e5f60/6d1b0c9a-2e4f-4a6b-8c0d-1e2f3a4b5c6d",
+    "call": {
+      "id": "5e4d3c2b-1a09-4f8e-9d7c-6b5a4f3e2d1c",
+      "source": "local",
+      "generation": "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
+    },
+    "tool": {
+      "id": "3c2b1a0f-9e8d-4c7b-a6f5-e4d3c2b1a0f9",
+      "name": "archive_shot"
+    },
+    "rev": {
+      "config": 3,
+      "contract": 2,
+      "tool": 5,
+      "publication": 1
+    },
+    "args": {
+      "alg": "sha256-jcs-v1",
+      "digest": "arguments-v1:0829c129e6a2722cd8acda6e6b4026759f2590bfb901cef0db9c20f47e749c44"
+    },
+    "sub": {
+      "id": "9b7c8d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e",
+      "auth": "jwt",
+      "idp": {
+        "iss": "https://auth.studio.example.test/application/o/symbiote/",
+        "sub": "0c8f2d6a91b3e47f5a2d9c1b8e7f6a5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c",
+        "verified_at": 1799996400
+      },
+      "email": "Ada.Artist@studio.example.test"
+    },
+    "iat": 1800000000,
+    "exp": 1800000060
+  },
+  "signing_input_b64": "c3ltYmlvdGUtY2FsbGVyLWFzc2VydGlvbi12MgB7ImFsZyI6IkVkMjU1MTkiLCJjbGFpbXMiOnsiYXJncyI6eyJhbGciOiJzaGEyNTYtamNzLXYxIiwiZGlnZXN0IjoiYXJndW1lbnRzLXYxOjA4MjljMTI5ZTZhMjcyMmNkOGFjZGE2ZTZiNDAyNjc1OWYyNTkwYmZiOTAxY2VmMGRiOWMyMGY0N2U3NDljNDQifSwiYXVkIjoic3ltYmlvdGUtbWNwOjBmNWIyYjVlLTFjM2EtNGQyZS05YjFmLTZhOGMyZDRlNWY2MC82ZDFiMGM5YS0yZTRmLTRhNmItOGMwZC0xZTJmM2E0YjVjNmQiLCJjYWxsIjp7ImdlbmVyYXRpb24iOiIwYTFiMmMzZC00ZTVmLTRhNmItOGM3ZC04ZTlmMGExYjJjM2QiLCJpZCI6IjVlNGQzYzJiLTFhMDktNGY4ZS05ZDdjLTZiNWE0ZjNlMmQxYyIsInNvdXJjZSI6ImxvY2FsIn0sImV4cCI6MTgwMDAwMDA2MCwiaWF0IjoxODAwMDAwMDAwLCJpc3MiOiJodHRwczovL3N5bWJpb3RlLmV4YW1wbGUudGVzdCIsImp0aSI6IjhlM2E3YjJmLTRjNWQtNGU2Zi05YTAxLTJiM2M0ZDVlNmY3MCIsInJldiI6eyJjb25maWciOjMsImNvbnRyYWN0IjoyLCJwdWJsaWNhdGlvbiI6MSwidG9vbCI6NX0sInN1YiI6eyJhdXRoIjoiand0IiwiZW1haWwiOiJBZGEuQXJ0aXN0QHN0dWRpby5leGFtcGxlLnRlc3QiLCJpZCI6IjliN2M4ZDZlLTVmNGEtNGIzYy04ZDJlLTFmMGE5YjhjN2Q2ZSIsImlkcCI6eyJpc3MiOiJodHRwczovL2F1dGguc3R1ZGlvLmV4YW1wbGUudGVzdC9hcHBsaWNhdGlvbi9vL3N5bWJpb3RlLyIsInN1YiI6IjBjOGYyZDZhOTFiM2U0N2Y1YTJkOWMxYjhlN2Y2YTVkNGMzYjJhMTkwOGY3ZTZkNWM0YjNhMjkxOGY3ZTZkNWMiLCJ2ZXJpZmllZF9hdCI6MTc5OTk5NjQwMH19LCJ0b29sIjp7ImlkIjoiM2MyYjFhMGYtOWU4ZC00YzdiLWE2ZjUtZTRkM2MyYjFhMGY5IiwibmFtZSI6ImFyY2hpdmVfc2hvdCJ9LCJ0eXAiOiJzeW1iaW90ZS1jYWxsZXItYXNzZXJ0aW9uLXYyIn0sImtpZCI6IjIwMjYtMDkiLCJ2IjoxfQ==",
+  "signing_input_text": "{\"alg\":\"Ed25519\",\"claims\":{\"args\":{\"alg\":\"sha256-jcs-v1\",\"digest\":\"arguments-v1:0829c129e6a2722cd8acda6e6b4026759f2590bfb901cef0db9c20f47e749c44\"},\"aud\":\"symbiote-mcp:0f5b2b5e-1c3a-4d2e-9b1f-6a8c2d4e5f60/6d1b0c9a-2e4f-4a6b-8c0d-1e2f3a4b5c6d\",\"call\":{\"generation\":\"0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d\",\"id\":\"5e4d3c2b-1a09-4f8e-9d7c-6b5a4f3e2d1c\",\"source\":\"local\"},\"exp\":1800000060,\"iat\":1800000000,\"iss\":\"https://symbiote.example.test\",\"jti\":\"8e3a7b2f-4c5d-4e6f-9a01-2b3c4d5e6f70\",\"rev\":{\"config\":3,\"contract\":2,\"publication\":1,\"tool\":5},\"sub\":{\"auth\":\"jwt\",\"email\":\"Ada.Artist@studio.example.test\",\"id\":\"9b7c8d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e\",\"idp\":{\"iss\":\"https://auth.studio.example.test/application/o/symbiote/\",\"sub\":\"0c8f2d6a91b3e47f5a2d9c1b8e7f6a5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c\",\"verified_at\":1799996400}},\"tool\":{\"id\":\"3c2b1a0f-9e8d-4c7b-a6f5-e4d3c2b1a0f9\",\"name\":\"archive_shot\"},\"typ\":\"symbiote-caller-assertion-v2\"},\"kid\":\"2026-09\",\"v\":1}",
+  "sig": "HvI2sCTpDzp8RamE-jIX67FBcO8dD51DKY_50LIxTUw3B-gsFIIo54FlZ6fgp8_4jY_IHUH3zJF_LWs9sB2IDg",
+  "envelope": {
+    "v": 1,
+    "alg": "Ed25519",
+    "kid": "2026-09",
+    "claims": {
+      "typ": "symbiote-caller-assertion-v2",
+      "iss": "https://symbiote.example.test",
+      "jti": "8e3a7b2f-4c5d-4e6f-9a01-2b3c4d5e6f70",
+      "aud": "symbiote-mcp:0f5b2b5e-1c3a-4d2e-9b1f-6a8c2d4e5f60/6d1b0c9a-2e4f-4a6b-8c0d-1e2f3a4b5c6d",
+      "call": {
+        "id": "5e4d3c2b-1a09-4f8e-9d7c-6b5a4f3e2d1c",
+        "source": "local",
+        "generation": "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
+      },
+      "tool": {
+        "id": "3c2b1a0f-9e8d-4c7b-a6f5-e4d3c2b1a0f9",
+        "name": "archive_shot"
+      },
+      "rev": {
+        "config": 3,
+        "contract": 2,
+        "tool": 5,
+        "publication": 1
+      },
+      "args": {
+        "alg": "sha256-jcs-v1",
+        "digest": "arguments-v1:0829c129e6a2722cd8acda6e6b4026759f2590bfb901cef0db9c20f47e749c44"
+      },
+      "sub": {
+        "id": "9b7c8d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e",
+        "auth": "jwt",
+        "idp": {
+          "iss": "https://auth.studio.example.test/application/o/symbiote/",
+          "sub": "0c8f2d6a91b3e47f5a2d9c1b8e7f6a5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c",
+          "verified_at": 1799996400
+        },
+        "email": "Ada.Artist@studio.example.test"
+      },
+      "iat": 1800000000,
+      "exp": 1800000060
+    },
+    "sig": "HvI2sCTpDzp8RamE-jIX67FBcO8dD51DKY_50LIxTUw3B-gsFIIo54FlZ6fgp8_4jY_IHUH3zJF_LWs9sB2IDg"
+  }
+}

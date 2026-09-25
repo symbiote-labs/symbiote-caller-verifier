@@ -10,7 +10,7 @@ include = ["symbiote_caller_verifier", "tests", "examples", "README.md", "LICENS
 
 [project]
 name = "symbiote-caller-verifier"
-version = "0.1.0"
+version = "0.2.0"
 description = "Verify Symbiote caller assertions before an MCP tool runs"
 readme = "README.md"
 license = "MIT"

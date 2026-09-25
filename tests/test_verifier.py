@@ -163,7 +163,6 @@ def test_login_jwt_in_meta_is_shape(config, store):
 @pytest.mark.parametrize(
     ("field", "value", "code"),
     [
-        ("typ", "symbiote-caller-assertion-v2", "shape"),
         ("iss", "https://other.example.test", "audience"),
         ("aud", codec.audience(INTEGRATION_ID, "6d1b0c9a-2e4f-4a6b-8c0d-000000000000"), "audience"),
         ("aud", codec.audience("0f5b2b5e-1c3a-4d2e-9b1f-000000000000", SERVER_ID), "audience"),
@@ -172,6 +171,13 @@ def test_login_jwt_in_meta_is_shape(config, store):
 def test_wrong_target_refused(key, config, store, field, value, code):
     assertion = dataclasses.replace(claims(arguments=ARGS), **{field: value})
     assert refused(config, store, mint(key, assertion)) == code
+
+
+def test_unknown_assertion_typ_is_shape(key, config, store):
+    # The signer refuses to sign an unknown ``typ``, so the refusal is shown on the wire value.
+    meta = mint(key, claims(arguments=ARGS))
+    meta[codec.META_KEY]["claims"]["typ"] = "symbiote-caller-assertion-v3"
+    assert refused(config, store, meta) == "shape"
 
 
 def test_freshness_bounds_use_corrected_skew(key, config, store):

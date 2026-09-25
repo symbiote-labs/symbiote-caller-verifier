@@ -9,5 +9,8 @@
     ]
   },
   "max_skew_seconds": 5,
-  "exempt_tools": ["greet"]
+  "exempt_tools": ["greet"],
+  "require_identity": "idp+email",
+  "allowed_idp_issuers": ["https://auth.studio.example.com/application/o/symbiote/"],
+  "max_identity_age_seconds": 604800
 }
