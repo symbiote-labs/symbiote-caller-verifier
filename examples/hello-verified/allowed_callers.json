@@ -1,4 +1,16 @@
 {
+  "callers": [
+    {
+      "email": "ada.artist@studio.example.com",
+      "operations": ["archive_shot"],
+      "idp": {
+        "iss": "https://auth.studio.example.com/application/o/symbiote/",
+        "sub": "0c8f2d6a91b3e47f5a2d9c1b8e7f6a5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c"
+      }
+    },
+    {"email": "new.hire@studio.example.com", "operations": ["archive_shot"]},
+    {"email": "bob.bystander@studio.example.com", "operations": []}
+  ],
   "subjects": {
     "00000000-0000-4000-8000-0000000000aa": ["archive_shot"]
   }

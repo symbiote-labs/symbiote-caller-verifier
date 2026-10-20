@@ -21,17 +21,19 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from symbiote_caller_verifier.codec import (
     META_KEY,
     CodecError,
+    IdpIdentity,
     Revisions,
     TrustBundle,
     argument_digest,
     audience,
     parse_envelope,
+    validate_idp_issuer,
     verify_signature,
 )
 from symbiote_caller_verifier.replay_store import ReplayDetected, ReplayStoreUnavailable
@@ -50,14 +52,23 @@ REJECTION_CODES = frozenset(
         "argument_digest",
         "replayed",
         "store_unavailable",
+        "identity_insufficient",
+        "identity_issuer",
+        "identity_stale",
     }
 )
+IdentityLevel = Literal["uuid", "idp", "idp+email"]
+# Ordered weakest first: ``uuid`` (v1), ``idp`` (v2), ``idp+email`` (v2 with email).
+IDENTITY_LEVELS: tuple[IdentityLevel, ...] = ("uuid", "idp", "idp+email")
 DEFAULT_MAX_SKEW_SECONDS = 5
 MAX_SKEW_SECONDS = 300
 # Longest ``exp - iat`` accepted. The platform mints at most 120 s; the bound
 # stops a signed assertion with an absurd lifetime from verifying for years.
 DEFAULT_MAX_LIFETIME_SECONDS = 300
 MAX_LIFETIME_SECONDS = 3600
+# Upper bound on ``max_identity_age_seconds``: a year. The option bounds how long ago
+# the IdP last verified the caller (``sub.idp.verified_at``), not the assertion.
+MAX_IDENTITY_AGE_SECONDS = 365 * 86_400
 # Declared MCP ``_meta`` fields that select no tool and may sit beside the
 # assertion. Anything else (``fastmcp`` picks another tool version) is foreign.
 TOLERATED_META_KEYS = frozenset({"progressToken"})
@@ -70,6 +81,9 @@ _CONFIG_KEYS = frozenset(
         "max_skew_seconds",
         "max_lifetime_seconds",
         "exempt_tools",
+        "require_identity",
+        "allowed_idp_issuers",
+        "max_identity_age_seconds",
     }
 )
 _REQUIRED_CONFIG_KEYS = frozenset({"issuer", "integration_id", "server_id", "trust_bundle"})
@@ -111,6 +125,12 @@ class VerifiedCaller:
     iat: int
     exp: int
     args_digest: str
+    # Assertion v2 (0.2.0). ``identity_level`` is ``uuid`` for a v1 assertion, whose
+    # ``idp`` and ``email`` are ``None``. Key the studio's mapping on ``idp`` (the
+    # issuer + subject pair); ``email`` is an attribute the IdP verified, not an id.
+    identity_level: IdentityLevel = "uuid"
+    idp: IdpIdentity | None = None
+    email: str | None = None
 
 
 def _canonical_uuid(value: Any, field: str) -> str:
@@ -134,6 +154,10 @@ class VerifierConfig:
     max_skew_seconds: int = DEFAULT_MAX_SKEW_SECONDS
     max_lifetime_seconds: int = DEFAULT_MAX_LIFETIME_SECONDS
     exempt_tools: frozenset[str] = frozenset()
+    require_identity: IdentityLevel = "uuid"
+    allowed_idp_issuers: frozenset[str] = frozenset()
+    # ``None`` (default) accepts an identity however long ago the IdP verified it.
+    max_identity_age_seconds: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.issuer, str) or not self.issuer:
@@ -162,6 +186,31 @@ class VerifierConfig:
             raise ValueError("exempt_tools must be a frozenset of tool names")
         if PROBE_TOOL_NAME in self.exempt_tools:
             raise ValueError(f"{PROBE_TOOL_NAME} cannot be exempt from verification")
+        if not isinstance(self.require_identity, str) or self.require_identity not in (
+            IDENTITY_LEVELS
+        ):
+            raise ValueError(f"require_identity must be one of {', '.join(IDENTITY_LEVELS)}")
+        if not isinstance(self.allowed_idp_issuers, frozenset):
+            raise ValueError("allowed_idp_issuers must be a frozenset of issuer URLs")
+        if self.allowed_idp_issuers and self.require_identity == "uuid":
+            # v1 assertions carry no issuer, so this pin would be skipped for them.
+            raise ValueError("allowed_idp_issuers requires require_identity idp or idp+email")
+        age = self.max_identity_age_seconds
+        if age is not None:
+            if type(age) is not int or not 1 <= age <= MAX_IDENTITY_AGE_SECONDS:
+                raise ValueError(
+                    f"max_identity_age_seconds must be an integer in 1..{MAX_IDENTITY_AGE_SECONDS}"
+                )
+            if self.require_identity == "uuid":
+                # v1 assertions carry no identity, so this bound would be skipped for them.
+                raise ValueError(
+                    "max_identity_age_seconds requires require_identity idp or idp+email"
+                )
+        for issuer in self.allowed_idp_issuers:
+            try:
+                validate_idp_issuer(issuer)
+            except CodecError:
+                raise ValueError("allowed_idp_issuers must hold http(s) issuer URLs") from None
 
     @property
     def audience(self) -> str:
@@ -176,11 +225,15 @@ class VerifierConfig:
             raise ValueError(
                 "verifier config keys must be issuer, integration_id, server_id, "
                 "trust_bundle and optionally max_skew_seconds, max_lifetime_seconds, "
-                "exempt_tools"
+                "exempt_tools, require_identity, allowed_idp_issuers, "
+                "max_identity_age_seconds"
             )
         exempt = value.get("exempt_tools", [])
         if not isinstance(exempt, list) or not all(isinstance(name, str) for name in exempt):
             raise ValueError("exempt_tools must be a list of tool names")
+        issuers = value.get("allowed_idp_issuers", [])
+        if not isinstance(issuers, list):
+            raise ValueError("allowed_idp_issuers must be a list of issuer URLs")
         return cls(
             issuer=value["issuer"],
             integration_id=value["integration_id"],
@@ -189,6 +242,9 @@ class VerifierConfig:
             max_skew_seconds=value.get("max_skew_seconds", DEFAULT_MAX_SKEW_SECONDS),
             max_lifetime_seconds=value.get("max_lifetime_seconds", DEFAULT_MAX_LIFETIME_SECONDS),
             exempt_tools=frozenset(exempt),
+            require_identity=value.get("require_identity", "uuid"),
+            allowed_idp_issuers=frozenset(issuers),
+            max_identity_age_seconds=value.get("max_identity_age_seconds"),
         )
 
     @classmethod
@@ -281,6 +337,19 @@ def verify_assertion(
         raise CallerRejected("argument_digest") from None
     if not hmac.compare_digest(digest, claims.args.digest):
         raise CallerRejected("argument_digest")
+    level = _identity_level(claims.sub.idp, claims.sub.email)
+    if IDENTITY_LEVELS.index(level) < IDENTITY_LEVELS.index(config.require_identity):
+        raise CallerRejected("identity_insufficient")
+    idp = claims.sub.idp
+    if idp is not None and config.allowed_idp_issuers and idp.iss not in config.allowed_idp_issuers:
+        raise CallerRejected("identity_issuer")
+    if idp is not None and idp.verified_at > claims.iat + config.max_skew_seconds:
+        # The platform minted this from an identity it had already verified; one
+        # verified after the assertion was minted is not a real record.
+        raise CallerRejected("shape")
+    age = config.max_identity_age_seconds
+    if idp is not None and age is not None and now - idp.verified_at > age:
+        raise CallerRejected("identity_stale")
     return VerifiedCaller(
         subject_id=claims.sub.id,
         subject_auth=claims.sub.auth,
@@ -295,7 +364,16 @@ def verify_assertion(
         iat=claims.iat,
         exp=claims.exp,
         args_digest=claims.args.digest,
+        identity_level=level,
+        idp=idp,
+        email=claims.sub.email,
     )
+
+
+def _identity_level(idp: IdpIdentity | None, email: str | None) -> IdentityLevel:
+    if idp is None:
+        return "uuid"
+    return "idp+email" if email is not None else "idp"
 
 
 def verify_call(

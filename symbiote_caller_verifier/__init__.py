@@ -10,6 +10,7 @@ from __future__ import annotations
 from symbiote_caller_verifier.codec import (
     META_KEY,
     CodecError,
+    IdpIdentity,
     SigningKey,
     TrustBundle,
 )
@@ -20,6 +21,7 @@ from symbiote_caller_verifier.replay_store import (
 )
 from symbiote_caller_verifier.verifier import (
     CALLER_PROTOCOL,
+    IDENTITY_LEVELS,
     PROBE_TOOL_NAME,
     REJECTION_CODES,
     CallerRejected,
@@ -32,15 +34,17 @@ from symbiote_caller_verifier.verifier import (
     verify_call,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "CALLER_PROTOCOL",
+    "IDENTITY_LEVELS",
     "META_KEY",
     "PROBE_TOOL_NAME",
     "REJECTION_CODES",
     "CallerRejected",
     "CodecError",
+    "IdpIdentity",
     "ReplayDetected",
     "ReplayStoreUnavailable",
     "SigningKey",

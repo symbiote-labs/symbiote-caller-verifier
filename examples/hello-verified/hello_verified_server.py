@@ -1,10 +1,18 @@
 """Verified-caller MCP server: identity is proven before the tool runs.
 
-``greet`` is exempt (standard-mode guarantees only). ``archive_shot`` requires
-a verified caller and then applies the studio's own policy, mapping the
-platform subject id to permitted operations. Run over stdio with
-``python hello_verified_server.py``; configure through environment variables
-or the files next to this script. Never print to stdout.
+``greet`` is exempt (standard-mode guarantees only). ``archive_shot`` requires a
+verified caller and then applies the studio's own policy:
+
+- An ``idp+email`` caller is looked up by the email the IdP verified, and the
+  IdP ``(issuer, subject)`` pair is the stable key. Once a policy entry records
+  that pair, the pair decides: it keeps its permissions if the address changes,
+  and a reassigned address arriving under another pair gets nothing.
+- A ``uuid`` caller (assertion v1) is looked up by platform user UUID.
+
+Tool results never carry the caller's identity, except the opt-in ``whoami`` test
+tool (off unless ``SYMBIOTE_EXPOSE_WHOAMI=1``). Run over stdio with
+``python hello_verified_server.py``; configure through environment variables or
+the files next to this script. Never print to stdout.
 """
 
 from __future__ import annotations
@@ -13,7 +21,8 @@ import json
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +31,7 @@ from fastmcp.exceptions import ToolError
 
 from symbiote_caller_verifier import (
     SqliteReplayStore,
+    VerifiedCaller,
     VerifierConfig,
     require_verified_caller,
 )
@@ -34,25 +44,117 @@ HERE = Path(__file__).resolve().parent
 CONFIG_ENV = "SYMBIOTE_VERIFIER_CONFIG"
 REPLAY_ENV = "SYMBIOTE_REPLAY_DB"
 POLICY_ENV = "SYMBIOTE_CALLER_POLICY"
-OPERATIONS = frozenset({"archive_shot"})
-PolicyObserver = Callable[[str, str], None]
+WHOAMI_ENV = "SYMBIOTE_EXPOSE_WHOAMI"
+OPERATIONS = frozenset({"archive_shot", "whoami"})
+NOTHING: frozenset[str] = frozenset()
+PolicyObserver = Callable[[VerifiedCaller, str], None]
 
 
-def load_policy(path: str | os.PathLike[str]) -> dict[str, frozenset[str]]:
-    """``{"subjects": {"<platform user UUID>": ["archive_shot", ...]}}``."""
+@dataclass(frozen=True)
+class Entry:
+    """One studio user: permitted operations, and the IdP pair once known."""
+
+    operations: frozenset[str]
+    idp: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class Policy:
+    by_email: Mapping[str, Entry]
+    by_idp: Mapping[tuple[str, str], Entry]
+    by_subject: Mapping[str, frozenset[str]]
+
+    def permitted(self, caller: VerifiedCaller) -> frozenset[str]:
+        if caller.idp is None:
+            return self.by_subject.get(caller.subject_id, NOTHING)
+        pair = (caller.idp.iss, caller.idp.sub)
+        if pair in self.by_idp:
+            return self.by_idp[pair].operations
+        if caller.email is None:
+            return NOTHING
+        entry = self.by_email.get(caller.email.casefold())
+        if entry is None or entry.idp is not None:
+            # Unknown address, or one recorded under another (issuer, subject):
+            # an address reassigned to someone else inherits nothing.
+            return NOTHING
+        return entry.operations
+
+
+def _operations(value: object, who: str) -> frozenset[str]:
+    if not isinstance(value, list) or not set(value) <= OPERATIONS:
+        raise ValueError(f"unknown operation for {who}")
+    return frozenset(value)
+
+
+def _entry(raw: object) -> tuple[str, Entry]:
+    if not isinstance(raw, dict) or not {"email", "operations"} <= set(raw) <= {
+        "email",
+        "operations",
+        "idp",
+    }:
+        raise ValueError("each caller needs 'email', 'operations' and optionally 'idp'")
+    email = raw["email"]
+    if not isinstance(email, str) or "@" not in email:
+        raise ValueError("caller 'email' must be an address")
+    idp = raw.get("idp")
+    pair = None
+    if idp is not None:
+        if (
+            not isinstance(idp, dict)
+            or set(idp) != {"iss", "sub"}
+            or not all(isinstance(part, str) and part for part in idp.values())
+        ):
+            raise ValueError(f"caller {email!r}: 'idp' must be {{'iss', 'sub'}} strings")
+        pair = (idp["iss"], idp["sub"])
+    return email.casefold(), Entry(_operations(raw["operations"], email), pair)
+
+
+def load_policy(path: str | os.PathLike[str]) -> Policy:
+    """``{"callers": [{"email", "operations", "idp"?}], "subjects": {"<UUID>": [...]}}``.
+
+    ``callers`` serves ``idp+email`` integrations and ``subjects`` serves ``uuid``
+    ones; either may be empty. In a real server, read both from your directory.
+    """
     with open(path, encoding="utf-8") as handle:
         body = json.load(handle)
-    if not isinstance(body, dict) or set(body) != {"subjects"}:
-        raise ValueError(f"policy must be an object with a single 'subjects' key: {path}")
-    subjects = body["subjects"]
-    if not isinstance(subjects, dict):
-        raise ValueError(f"policy 'subjects' must be an object: {path}")
-    policy: dict[str, frozenset[str]] = {}
-    for subject, operations in subjects.items():
-        if not isinstance(operations, list) or not set(operations) <= OPERATIONS:
-            raise ValueError(f"unknown operation for subject {subject}: {path}")
-        policy[subject] = frozenset(operations)
-    return policy
+    if not isinstance(body, dict) or set(body) - {"callers", "subjects"}:
+        raise ValueError(f"policy must be an object with 'callers' and 'subjects': {path}")
+    callers = body.get("callers", [])
+    subjects = body.get("subjects", {})
+    if not isinstance(callers, list) or not isinstance(subjects, dict):
+        raise ValueError(f"policy 'callers' must be a list and 'subjects' an object: {path}")
+    entries = [_entry(raw) for raw in callers]
+    by_email = dict(entries)
+    if len(by_email) != len(entries):
+        raise ValueError(f"policy lists an email twice: {path}")
+    by_idp = {entry.idp: entry for _, entry in entries if entry.idp is not None}
+    if len(by_idp) != sum(entry.idp is not None for _, entry in entries):
+        raise ValueError(f"policy records one (issuer, subject) twice: {path}")
+    return Policy(
+        by_email=by_email,
+        by_idp=by_idp,
+        by_subject={subject: _operations(ops, subject) for subject, ops in subjects.items()},
+    )
+
+
+def whoami_enabled(environ: Mapping[str, str]) -> bool:
+    """``SYMBIOTE_EXPOSE_WHOAMI=1`` turns ``whoami`` on; unset or ``0`` leaves it off."""
+    value = environ.get(WHOAMI_ENV, "0")
+    if value not in ("0", "1"):
+        raise ValueError(f"{WHOAMI_ENV} must be 0 or 1")
+    return value == "1"
+
+
+def _identity(caller: VerifiedCaller) -> dict[str, Any]:
+    idp = caller.idp
+    return {
+        "identity_level": caller.identity_level,
+        "subject_id": caller.subject_id,
+        "idp": None
+        if idp is None
+        else {"iss": idp.iss, "sub": idp.sub, "verified_at": idp.verified_at},
+        "email": caller.email,
+    }
 
 
 def build_server(
@@ -61,6 +163,7 @@ def build_server(
     replay_path: str | os.PathLike[str],
     policy_path: str | os.PathLike[str],
     on_policy_check: PolicyObserver | None = None,
+    expose_whoami: bool = False,
 ) -> tuple[FastMCP, list[str]]:
     """Return the server and the in-memory archive its side effect writes to."""
     config = VerifierConfig.from_file(config_path)
@@ -77,16 +180,35 @@ def build_server(
         """Greet someone. Exempt from verification: no identity guarantee."""
         return f"Hello, {name}!"
 
+    def authorize(operation: str) -> VerifiedCaller:
+        caller = require_verified_caller()
+        if on_policy_check is not None:
+            on_policy_check(caller, operation)
+        if operation not in policy.permitted(caller):
+            raise ToolError(f"policy_denied: caller is not permitted to {operation}")
+        return caller
+
     @mcp.tool
     def archive_shot(shot: str) -> dict[str, Any]:
         """Archive a shot. Requires a verified caller permitted by policy."""
-        caller = require_verified_caller()
-        if on_policy_check is not None:
-            on_policy_check(caller.subject_id, "archive_shot")
-        if "archive_shot" not in policy.get(caller.subject_id, frozenset()):
-            raise ToolError("policy_denied: subject is not permitted to archive shots")
+        caller = authorize("archive_shot")
         archive.append(shot)
-        return {"status": "archived", "shot": shot, "by": caller.subject_id}
+        # The result goes back through the platform to its model provider and
+        # retention: report the identity level, never who the caller is.
+        return {"status": "archived", "shot": shot, "identity_level": caller.identity_level}
+
+    if expose_whoami:
+
+        @mcp.tool
+        def whoami() -> dict[str, Any]:
+            """TESTING ONLY: return the caller's verified identity.
+
+            This deliberately echoes the IdP issuer, subject, email and platform user
+            id into the result, and so into the model context and the chat transcript.
+            Use it to check what the verifier sees while onboarding; keep it off in
+            production. It is verified and policy-checked like any other tool.
+            """
+            return _identity(authorize("whoami"))
 
     return mcp, archive
 
@@ -112,6 +234,7 @@ def main() -> None:
         config_path=os.environ.get(CONFIG_ENV, HERE / "verifier.json"),
         replay_path=os.environ.get(REPLAY_ENV, HERE / "replay.sqlite"),
         policy_path=os.environ.get(POLICY_ENV, HERE / "allowed_callers.json"),
+        expose_whoami=whoami_enabled(os.environ),
     )
     mcp.run()
 
